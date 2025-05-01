@@ -9,9 +9,17 @@ import (
 )
 
 type mensagem struct {
-	tipo  int    // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
-	corpo [3]int // conteudo da mensagem para colocar os ids (usar um tamanho ocmpativel com o numero de processos no anel)
+	tipo  int // tipo da mensagem para fazer o controle do que fazer (eleição, confirmacao da eleicao)
+	corpo int // conteudo da mensagem para colocar os ids (usar um tamanho compativel com o numero de processos no anel)
 }
+
+const (
+	TIPO_MSG_FORCE_FALHA        int = 2
+	TIPO_MSG_FORCE_RETURN       int = 3
+	TIPO_MSG_INFORM_LEADER_DOWN int = 4
+	TIPO_MSG_VOTE_ELECTION      int = 5
+	TIPO_MSG_CONFIRM_ELECTION   int = 6
+)
 
 var (
 	chans = []chan mensagem{ // vetor de canias para formar o anel de eleicao - chan[0], chan[1] and chan[2] ...
@@ -48,7 +56,7 @@ func ElectionControler(in chan int) {
 
 	// matar os outrs processos com mensagens não conhecidas (só pra cosumir a leitura)
 
-	temp.tipo = 4
+	temp.tipo = -1
 	chans[1] <- temp
 	chans[2] <- temp
 
@@ -58,35 +66,67 @@ func ElectionControler(in chan int) {
 func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) {
 	defer wg.Done()
 
-	// variaveis locais que indicam se este processo é o lider e se esta ativo
-
 	var actualLeader int
-	var bFailed bool = false // todos inciam sem falha
+	var bFailed bool = false
+	var selfDispatchedElection bool = false
 
-	actualLeader = leader // indicação do lider veio por parâmatro
+	actualLeader = leader
 
-	temp := <-in // ler mensagem
-	fmt.Printf("%2d: recebi mensagem %d, [ %d, %d, %d ]\n", TaskId, temp.tipo, temp.corpo[0], temp.corpo[1], temp.corpo[2])
+	var keepListening bool = true
+	for keepListening {
+		inboundMessage := <-in
 
-	switch temp.tipo {
-	case 2:
-		{
-			bFailed = true
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
+		if bFailed {
+			out <- inboundMessage
+			continue
 		}
-	case 3:
-		{
-			bFailed = false
-			fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
-			controle <- -5
-		}
-	default:
-		{
-			fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
-			fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+
+		fmt.Printf("%2d: recebi mensagem %d, [ %d ]\n", TaskId, inboundMessage.tipo, inboundMessage.corpo)
+
+		switch inboundMessage.tipo {
+		case TIPO_MSG_FORCE_FALHA:
+			{
+				bFailed = true
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		case TIPO_MSG_FORCE_RETURN:
+			{
+				bFailed = false
+				fmt.Printf("%2d: falho %v \n", TaskId, bFailed)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				controle <- -5
+			}
+		case TIPO_MSG_INFORM_LEADER_DOWN:
+			{
+				selfDispatchedElection = true
+				out <- mensagem{
+					tipo:  TIPO_MSG_VOTE_ELECTION,
+					corpo: TaskId,
+				}
+			}
+		case TIPO_MSG_VOTE_ELECTION:
+			{
+				if selfDispatchedElection {
+					selfDispatchedElection = false
+					out <- mensagem{
+						tipo:  TIPO_MSG_CONFIRM_ELECTION,
+						corpo: inboundMessage.corpo,
+					}
+				} else {
+					if inboundMessage.corpo < TaskId {
+						inboundMessage.corpo = TaskId
+					}
+					out <- inboundMessage
+				}
+			}
+		default:
+			{
+				fmt.Printf("%2d: não conheço este tipo de mensagem\n", TaskId)
+				fmt.Printf("%2d: lider atual %d\n", TaskId, actualLeader)
+				keepListening = false
+			}
 		}
 	}
 

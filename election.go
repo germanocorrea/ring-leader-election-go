@@ -165,7 +165,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int) 
 
 func main() {
 
-	wg.Add(4) // Add a count of four, one for each goroutine
+	wg.Add(5) // Add a count of four, one for each goroutine
 
 	// criar os processo do anel de eleicao
 

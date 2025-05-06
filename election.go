@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"sync"
-	"time"
 )
 
 type mensagem struct {
@@ -37,45 +36,38 @@ var (
 func ElectionControler(in chan int) {
 	defer wg.Done()
 
-	var temp mensagem
-
-	// comandos para o anel iciam aqui
-
-	// mudar o processo 0 - canal de entrada 3 - para falho (defini mensagem tipo 2 pra isto)
-
 	fmt.Printf("Controle: mudar o processo 0 para falho\n")
-	temp.tipo = TIPO_MSG_FORCE_FALHA
-	chans[3] <- temp
+	chans[3] <- mensagem{
+		tipo: TIPO_MSG_FORCE_FALHA,
+	}
+	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
 
-	fmt.Printf("Controle: confirmação do processo %d\n", <-in) // receber e imprimir confirmação
-
-	// mudar o processo 1 - canal de entrada 0 - para falho (defini mensagem tipo 2 pra isto)
-
-	//fmt.Printf("Controle: avisar processo 1 que o lider falhou\n")
-	//temp.tipo = TIPO_MSG_INFORM_LEADER_DOWN
-	//chans[0] <- temp
-	//fmt.Printf("Controle: confirmação %d\n", <-in) // receber e imprimir confirmação
-
-	// matar os outrs processos com mensagens não conhecidas (só pra cosumir a leitura)
-
-	time.Sleep(5 * time.Second)
+	fmt.Printf("Controle: dispara eleição\n")
+	chans[0] <- mensagem{
+		tipo:  TIPO_MSG_VOTE_ELECTION,
+		corpo: -1,
+	}
+	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
 
 	fmt.Printf("Forçando retorno do processo 0")
+	chans[3] <- mensagem{
+		tipo: TIPO_MSG_FORCE_RETURN,
+	}
+	fmt.Printf("Controle: confirmação do processo de que a eleição terminou %d\n", <-in)
 
-	temp.tipo = TIPO_MSG_FORCE_RETURN
-	chans[3] <- temp
-
-	fmt.Printf("Controle: confirmação do processo %d\n", <-in) // receber e imprimir confirmação
-
-	time.Sleep(5 * time.Second)
+	fmt.Printf("Controle: dispara eleição\n")
+	chans[3] <- mensagem{
+		tipo:  TIPO_MSG_VOTE_ELECTION,
+		corpo: -1,
+	}
+	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
 
 	fmt.Printf("Disparando finalizações")
 
-	temp.tipo = TIPO_MSG_FINISH_PROCESS
-	chans[0] <- temp
-	chans[1] <- temp
-	chans[2] <- temp
-	chans[3] <- temp
+	chans[0] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
+	chans[1] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
+	chans[2] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
+	chans[3] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
 
 	fmt.Println("\n   Processo controlador concluído\n")
 }
@@ -84,12 +76,12 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 	defer wg.Done()
 
 	var actualLeader int
-	var bFailed bool = false
-	var selfDispatchedElection bool = false
+	var bFailed = false
+	var alreadyVoted = false
 
 	actualLeader = leader
 
-	var keepListening bool = true
+	var keepListening = true
 	for keepListening {
 		fmt.Printf(colorCode+"%2d: aguardando mensagens\n\033[0m", TaskId)
 		inboundMessage := <-in
@@ -97,63 +89,38 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 
 		fmt.Printf(colorCode+"%2d: recebi mensagem do tipo %d, conteúdo: [ %d ]\n\033[0m", TaskId, inboundMessage.tipo, inboundMessage.corpo)
 
+		if bFailed && inboundMessage.tipo != TIPO_MSG_FORCE_RETURN {
+			fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
+			out <- inboundMessage
+			continue
+		}
+
 		switch inboundMessage.tipo {
 		case TIPO_MSG_FORCE_FALHA:
 			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
 				bFailed = true
 				fmt.Printf(colorCode+"%2d: falhei \n\033[0m", TaskId)
 				fmt.Printf(colorCode+"%2d: lider atual %d\n\033[0m", TaskId, actualLeader)
 				controle <- TaskId
-				out <- mensagem{
-					tipo: TIPO_MSG_INFORM_LEADER_DOWN,
-				}
 			}
 		case TIPO_MSG_FORCE_RETURN:
 			{
 				bFailed = false
 				fmt.Printf(colorCode+"%2d: voltei da falha \n\033[0m", TaskId)
 				fmt.Printf(colorCode+"%2d: lider atual %d\n\033[0m", TaskId, actualLeader)
-				selfDispatchedElection = true
-				out <- mensagem{
-					tipo:  TIPO_MSG_VOTE_ELECTION,
-					corpo: TaskId,
-				}
 				controle <- TaskId
-			}
-		case TIPO_MSG_INFORM_LEADER_DOWN:
-			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
-				fmt.Printf(colorCode+"%2d: identifiquei que o líder está fora, criando eleição\n\033[0m", TaskId)
-				selfDispatchedElection = true
-				out <- mensagem{
-					tipo:  TIPO_MSG_VOTE_ELECTION,
-					corpo: TaskId,
-				}
 			}
 		case TIPO_MSG_VOTE_ELECTION:
 			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
-				if selfDispatchedElection {
-					selfDispatchedElection = false
+				if alreadyVoted {
+					alreadyVoted = false
 					out <- mensagem{
 						tipo:  TIPO_MSG_CONFIRM_ELECTION,
 						corpo: inboundMessage.corpo,
 					}
 					fmt.Printf(colorCode+"%2d: eu disparei a eleição, enviando confirmação do vencedor: %2d\n\033[0m", TaskId, inboundMessage.corpo)
 				} else {
+					alreadyVoted = true
 					if inboundMessage.corpo < TaskId {
 						fmt.Printf(colorCode+"%2d: tenho prioridade em relação a %2d, me colocando na eleição\n\033[0m", TaskId, inboundMessage.corpo)
 						inboundMessage.corpo = TaskId
@@ -165,34 +132,22 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 			}
 		case TIPO_MSG_CONFIRM_ELECTION:
 			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
+				alreadyVoted = false
 				if inboundMessage.corpo != actualLeader {
 					fmt.Printf(colorCode+"%2d: confirmando resultado da eleição, processo líder é %2d\n\033[0m", TaskId, inboundMessage.corpo)
 					actualLeader = inboundMessage.corpo
 					out <- inboundMessage
+				} else {
+					controle <- TaskId
 				}
 			}
 		case TIPO_MSG_FINISH_PROCESS:
 			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
 				fmt.Printf(colorCode+"%2d: finalizando o processo\n\033[0m", TaskId)
 				keepListening = false
 			}
 		default:
 			{
-				if bFailed {
-					fmt.Printf(colorCode+"%2d: estou fora, pulando para o próximo\n\033[0m", TaskId)
-					out <- inboundMessage
-					continue
-				}
 				fmt.Printf(colorCode+"%2d: não conheço este tipo de mensagem\n\033[0m", TaskId)
 				fmt.Printf(colorCode+"%2d: lider atual %d\n\033[0m", TaskId, actualLeader)
 				keepListening = false

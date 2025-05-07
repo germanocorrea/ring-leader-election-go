@@ -1,6 +1,3 @@
-// Código exemplo para o trabaho de sistemas distribuidos (eleicao em anel)
-// By Cesar De Rose - 2022
-
 package main
 
 import (

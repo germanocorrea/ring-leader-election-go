@@ -49,7 +49,7 @@ func ElectionControler(in chan int) {
 	}
 	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
 
-	fmt.Printf("Forçando retorno do processo 0")
+	fmt.Printf("Forçando retorno do processo 0\n")
 	chans[3] <- mensagem{
 		tipo: TIPO_MSG_FORCE_RETURN,
 	}

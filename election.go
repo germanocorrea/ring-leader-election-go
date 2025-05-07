@@ -14,12 +14,11 @@ type mensagem struct {
 }
 
 const (
-	TIPO_MSG_FORCE_FALHA        int = 2
-	TIPO_MSG_FORCE_RETURN       int = 3
-	TIPO_MSG_INFORM_LEADER_DOWN int = 4
-	TIPO_MSG_VOTE_ELECTION      int = 5
-	TIPO_MSG_CONFIRM_ELECTION   int = 6
-	TIPO_MSG_FINISH_PROCESS     int = 7
+	TIPO_MSG_FORCE_FALHA      int = 2
+	TIPO_MSG_FORCE_RETURN     int = 3
+	TIPO_MSG_VOTE_ELECTION    int = 4
+	TIPO_MSG_CONFIRM_ELECTION int = 5
+	TIPO_MSG_FINISH_PROCESS   int = 6
 )
 
 var (

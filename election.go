@@ -74,6 +74,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 	var actualLeader int
 	var bFailed = false
 	var alreadyVoted = false
+	var alreadyConfirmed = false
 
 	actualLeader = leader
 
@@ -108,6 +109,7 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 			}
 		case TIPO_MSG_VOTE_ELECTION:
 			{
+				alreadyConfirmed = false
 				if alreadyVoted {
 					alreadyVoted = false
 					out <- mensagem{
@@ -129,7 +131,8 @@ func ElectionStage(TaskId int, in chan mensagem, out chan mensagem, leader int, 
 		case TIPO_MSG_CONFIRM_ELECTION:
 			{
 				alreadyVoted = false
-				if inboundMessage.corpo != actualLeader {
+				if !alreadyConfirmed {
+					alreadyConfirmed = true
 					fmt.Printf(colorCode+"%2d: confirmando resultado da eleição, processo líder é %2d\n\033[0m", TaskId, inboundMessage.corpo)
 					actualLeader = inboundMessage.corpo
 					out <- inboundMessage

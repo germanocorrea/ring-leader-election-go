@@ -25,45 +25,89 @@ var (
 		make(chan mensagem),
 		make(chan mensagem),
 	}
-	controle = make(chan int)
-	wg       sync.WaitGroup // wg is used to wait for the program to finish
+	controle       = make(chan int)
+	firstLeader    = 3
+	highestProcess = 3
+	wg             sync.WaitGroup // wg is used to wait for the program to finish
 )
 
-func ElectionControler(in chan int) {
-	defer wg.Done()
+func normalizeProcessId(TaskId int) int {
+	if TaskId > highestProcess {
+		return 0
+	} else if TaskId < 0 {
+		return highestProcess
+	}
 
-	fmt.Printf("Controle: mudar o processo 0 para falho\n")
-	chans[3] <- mensagem{
+	return TaskId
+}
+
+func getInputChannelForTaskId(TaskId int) int {
+	return normalizeProcessId(TaskId - 1)
+}
+
+func derrubarProcesso(controle chan int, TaskId int) {
+	fmt.Printf("Controle: mudar o processo %d para falho\n", TaskId)
+	inputChannel := getInputChannelForTaskId(TaskId)
+	chans[inputChannel] <- mensagem{
 		tipo: TIPO_MSG_FORCE_FALHA,
 	}
-	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
+	fmt.Printf("Controle: confirmação do processo %d\n", <-controle)
+}
 
-	fmt.Printf("Controle: dispara eleição\n")
-	chans[0] <- mensagem{
-		tipo:  TIPO_MSG_VOTE_ELECTION,
-		corpo: -1,
-	}
-	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
-
-	fmt.Printf("Forçando retorno do processo 0\n")
-	chans[3] <- mensagem{
+func voltaProcesso(controle chan int, TaskId int) {
+	fmt.Printf("Controle: retorna processo %d\n", TaskId)
+	inputChannel := getInputChannelForTaskId(TaskId)
+	chans[inputChannel] <- mensagem{
 		tipo: TIPO_MSG_FORCE_RETURN,
 	}
-	fmt.Printf("Controle: confirmação do processo de que a eleição terminou %d\n", <-in)
+	fmt.Printf("Controle: confirmação do processo %d\n", <-controle)
+}
 
-	fmt.Printf("Controle: dispara eleição\n")
-	chans[3] <- mensagem{
+func disparaEleicao(controle chan int, TaskId int) {
+	fmt.Printf("Controle: dispara eleição no processo %d\n", TaskId)
+	inputChannel := getInputChannelForTaskId(TaskId)
+	chans[inputChannel] <- mensagem{
 		tipo:  TIPO_MSG_VOTE_ELECTION,
 		corpo: -1,
 	}
-	fmt.Printf("Controle: confirmação do processo %d\n", <-in)
+	fmt.Printf("Controle: confirmação da eleição vinda do processo %d\n", <-controle)
+}
 
+func finalizaProcessos() {
 	fmt.Printf("Disparando finalizações")
 
 	chans[0] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
 	chans[1] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
 	chans[2] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
 	chans[3] <- mensagem{tipo: TIPO_MSG_FINISH_PROCESS}
+}
+
+func ElectionControler(in chan int) {
+	defer wg.Done()
+
+	fmt.Println("\n\n\n============ Teste 1: derrubar e retornar líder, eleição deve escolher novo enquanto está fora e voltar para o líder original depois\n")
+	derrubarProcesso(in, firstLeader)
+	disparaEleicao(in, normalizeProcessId(firstLeader+1))
+	voltaProcesso(in, firstLeader)
+	disparaEleicao(in, firstLeader)
+
+	fmt.Println("\n\n\n============ Teste 2: derruba processo menor, eleição deve manter mesmo líder\n")
+	derrubarProcesso(in, 0)
+	disparaEleicao(in, 1)
+	voltaProcesso(in, 0)
+	disparaEleicao(in, 1)
+
+	fmt.Println("\n\n\n============ Teste 3: derruba todos processos menos um\n")
+	derrubarProcesso(in, 0)
+	derrubarProcesso(in, 1)
+	derrubarProcesso(in, 3)
+	disparaEleicao(in, 2)
+	voltaProcesso(in, 0)
+	voltaProcesso(in, 1)
+	voltaProcesso(in, 3)
+	disparaEleicao(in, 0)
+
+	finalizaProcessos()
 
 	fmt.Println("\n   Processo controlador concluído\n")
 }
